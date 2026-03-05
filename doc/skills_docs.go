@@ -114,12 +114,12 @@ func genSkillsInternal(cmd *cobra.Command, w io.Writer, config SkillsConfig, has
 // progressive disclosure convention:
 //
 //	<dir>/<skill-name>/SKILL.md
-//	<dir>/<skill-name>/references/REFERENCE.md
+//	<dir>/<skill-name>/references/<command_path>.md  (one per command)
 //
 // SKILL.md contains the frontmatter and a concise command overview.
-// REFERENCE.md contains detailed per-command documentation including
-// usage, examples, and flags. This keeps the main SKILL.md under
-// 500 lines per the specification recommendation.
+// Each reference file contains detailed documentation for a single
+// command including usage, examples, and flags. Agents load only the
+// reference file they need, keeping context usage minimal.
 func GenSkillsDir(cmd *cobra.Command, dir string, config SkillsConfig) error {
 	name := config.Name
 	if name == "" {
@@ -146,13 +146,21 @@ func GenSkillsDir(cmd *cobra.Command, dir string, config SkillsConfig) error {
 		return err
 	}
 
-	refFile, err := os.Create(filepath.Join(refDir, "REFERENCE.md"))
-	if err != nil {
-		return err
+	commands := collectCommands(cmd)
+	for _, c := range commands {
+		basename := cmdRefFilename(c)
+		f, err := os.Create(filepath.Join(refDir, basename))
+		if err != nil {
+			return err
+		}
+		err = genRefFile(c, f)
+		f.Close()
+		if err != nil {
+			return err
+		}
 	}
-	defer refFile.Close()
 
-	return genReference(cmd, refFile)
+	return nil
 }
 
 // genFrontmatter writes the YAML frontmatter block.
@@ -204,46 +212,37 @@ func genSkillsBody(buf *bytes.Buffer, cmd *cobra.Command, hasReference bool) {
 	if len(commands) > 1 {
 		buf.WriteString("## Available Commands\n\n")
 		for _, c := range commands[1:] {
-			fmt.Fprintf(buf, "- `%s` - %s\n", c.CommandPath(), c.Short)
+			if hasReference {
+				fmt.Fprintf(buf, "- [`%s`](references/%s) - %s\n", c.CommandPath(), cmdRefFilename(c), c.Short)
+			} else {
+				fmt.Fprintf(buf, "- `%s` - %s\n", c.CommandPath(), c.Short)
+			}
 		}
 		buf.WriteString("\n")
 	}
 
 	if hasReference {
-		buf.WriteString("For detailed command documentation including usage, examples, and flags, see [references/REFERENCE.md](references/REFERENCE.md).\n\n")
+		fmt.Fprintf(buf, "See [references/%s](references/%s) for root command flags.\n\n", cmdRefFilename(cmd), cmdRefFilename(cmd))
 	}
 
 	buf.WriteString("Run `" + cmd.Name() + " --help` or `" + cmd.Name() + " <command> --help` for full usage details.\n")
 }
 
-// genReference writes the detailed REFERENCE.md with per-command
-// documentation including usage, examples, and flags.
-func genReference(cmd *cobra.Command, w io.Writer) error {
+// cmdRefFilename returns the reference filename for a command,
+// e.g. "root_echo_times.md".
+func cmdRefFilename(cmd *cobra.Command) string {
+	return strings.ReplaceAll(cmd.CommandPath(), " ", "_") + markdownExtension
+}
+
+// genRefFile writes a detailed reference file for a single command.
+func genRefFile(cmd *cobra.Command, w io.Writer) error {
 	cmd.InitDefaultHelpCmd()
 	cmd.InitDefaultHelpFlag()
 
 	buf := new(bytes.Buffer)
-	commands := collectCommands(cmd)
-
-	buf.WriteString("# " + cmd.Name() + " Command Reference\n\n")
-
-	for _, c := range commands {
-		if err := genRefSection(buf, c); err != nil {
-			return err
-		}
-	}
-
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-// genRefSection writes a detailed section for a single command.
-func genRefSection(buf *bytes.Buffer, cmd *cobra.Command) error {
-	cmd.InitDefaultHelpCmd()
-	cmd.InitDefaultHelpFlag()
-
 	name := cmd.CommandPath()
-	buf.WriteString("## " + name + "\n\n")
+
+	buf.WriteString("# " + name + "\n\n")
 	buf.WriteString(cmd.Short + "\n\n")
 
 	if len(cmd.Long) > 0 && cmd.Long != cmd.Short {
@@ -255,7 +254,7 @@ func genRefSection(buf *bytes.Buffer, cmd *cobra.Command) error {
 	}
 
 	if len(cmd.Example) > 0 {
-		buf.WriteString("### Examples\n\n")
+		buf.WriteString("## Examples\n\n")
 		fmt.Fprintf(buf, "```\n%s\n```\n\n", cmd.Example)
 	}
 
@@ -263,7 +262,8 @@ func genRefSection(buf *bytes.Buffer, cmd *cobra.Command) error {
 		return err
 	}
 
-	return nil
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 // collectCommands returns cmd and all available descendant commands

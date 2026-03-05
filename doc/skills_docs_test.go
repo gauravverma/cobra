@@ -107,11 +107,6 @@ func TestGenSkillsDir(t *testing.T) {
 		t.Fatalf("Expected file 'my-tool/SKILL.md' to exist")
 	}
 
-	refFile := filepath.Join(tmpdir, "my-tool", "references", "REFERENCE.md")
-	if _, err := os.Stat(refFile); err != nil {
-		t.Fatalf("Expected file 'my-tool/references/REFERENCE.md' to exist")
-	}
-
 	skill, err := os.ReadFile(skillFile)
 	if err != nil {
 		t.Fatalf("Failed to read SKILL.md: %v", err)
@@ -119,22 +114,42 @@ func TestGenSkillsDir(t *testing.T) {
 	skillContent := string(skill)
 	checkStringContains(t, skillContent, "name: my-tool\n")
 	checkStringContains(t, skillContent, "# root")
-	checkStringContains(t, skillContent, "references/REFERENCE.md")
+	checkStringContains(t, skillContent, "references/root_echo.md")
+	checkStringContains(t, skillContent, "references/root.md")
 	checkStringOmits(t, skillContent, "### Examples")
 	checkStringOmits(t, skillContent, "### Options")
 
-	ref, err := os.ReadFile(refFile)
-	if err != nil {
-		t.Fatalf("Failed to read REFERENCE.md: %v", err)
+	refDir := filepath.Join(tmpdir, "my-tool", "references")
+	expectedRefs := []string{
+		"root.md",
+		"root_echo.md",
+		"root_echo_echosub.md",
+		"root_echo_times.md",
 	}
-	refContent := string(ref)
-	checkStringContains(t, refContent, "# root Command Reference")
-	checkStringContains(t, refContent, "## root echo")
-	checkStringContains(t, refContent, echoCmd.Long)
-	checkStringContains(t, refContent, echoCmd.Example)
-	checkStringContains(t, refContent, "boolone")
-	checkStringContains(t, refContent, "## root echo times")
-	checkStringContains(t, refContent, "Options inherited from parent commands")
+	for _, name := range expectedRefs {
+		if _, err := os.Stat(filepath.Join(refDir, name)); err != nil {
+			t.Fatalf("Expected reference file %q to exist", name)
+		}
+	}
+
+	echoRef, err := os.ReadFile(filepath.Join(refDir, "root_echo.md"))
+	if err != nil {
+		t.Fatalf("Failed to read root_echo.md: %v", err)
+	}
+	echoContent := string(echoRef)
+	checkStringContains(t, echoContent, "# root echo")
+	checkStringContains(t, echoContent, echoCmd.Long)
+	checkStringContains(t, echoContent, echoCmd.Example)
+	checkStringContains(t, echoContent, "boolone")
+
+	timesRef, err := os.ReadFile(filepath.Join(refDir, "root_echo_times.md"))
+	if err != nil {
+		t.Fatalf("Failed to read root_echo_times.md: %v", err)
+	}
+	timesContent := string(timesRef)
+	checkStringContains(t, timesContent, "# root echo times")
+	checkStringContains(t, timesContent, timesCmd.Short)
+	checkStringContains(t, timesContent, "Options inherited from parent commands")
 }
 
 func TestGenSkillsDirDefaultName(t *testing.T) {
